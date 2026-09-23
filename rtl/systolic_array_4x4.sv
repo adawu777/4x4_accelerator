@@ -1,4 +1,4 @@
-module accelerator_4x4 #(
+module systolic_array_4x4 #(
     parameter int DATA_W = 8,
     parameter int ACC_W  = 32
 ) (
@@ -31,7 +31,7 @@ module accelerator_4x4 #(
                     assign b_valid_pipe[0][j] = b_valid_in[j];
                 end
 
-                accelerator_4x4_pe #(
+                systolic_pe #(
                     .DATA_W(DATA_W),
                     .ACC_W(ACC_W)
                 ) pe (

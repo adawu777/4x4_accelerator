@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module tb_accelerator_4x4;
+module tb_systolic_array_4x4;
     localparam int DATA_W = 8;
     localparam int ACC_W = 32;
 
@@ -14,7 +14,7 @@ module tb_accelerator_4x4;
     wire signed [ACC_W-1:0] c_out [0:3][0:3];
     logic signed [ACC_W-1:0] expected [0:3][0:3];
 
-    accelerator_4x4 #(.DATA_W(DATA_W), .ACC_W(ACC_W)) dut (
+    systolic_array_4x4 #(.DATA_W(DATA_W), .ACC_W(ACC_W)) dut (
         .clk(clk), .rst_n(rst_n), .clear_acc(clear_acc),
         .a_in(a_in), .a_valid_in(a_valid_in),
         .b_in(b_in), .b_valid_in(b_valid_in), .c_out(c_out)
@@ -178,7 +178,7 @@ module tb_accelerator_4x4;
             sample_cycle("final drain: all accumulators remain zero");
         end
 
-        $display("PASS: all accelerator_4x4 interconnect tests completed");
+        $display("PASS: all systolic_array_4x4 interconnect tests completed");
         $finish;
     end
 

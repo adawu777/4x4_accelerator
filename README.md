@@ -1,375 +1,225 @@
 # 4×4 INT8 Matrix Accelerator
 
-A synthesizable SystemVerilog implementation of a **4×4 signed INT8 matrix multiplication accelerator** based on a **systolic array architecture**.
+A SystemVerilog RTL project implementing a 4×4 INT8 matrix multiplication accelerator based on a systolic array architecture.
+
+The project progresses from a basic matrix accelerator in v1.0 to a streaming, automatically controlled design with ping-pong input buffering in v2.0. It includes RTL modules, self-checking SystemVerilog testbenches, design documentation, and an end-to-end simulation.
+
+## 1. Project Overview
 
 The accelerator computes:
 
-\[
+$$
 C = A \times B
-\]
+$$
 
 where:
 
-- `A` is a 4×4 signed INT8 matrix
-- `B` is a 4×4 signed INT8 matrix
-- `C` is a 4×4 signed 32-bit result matrix
+* `A` and `B` are 4×4 matrices containing signed INT8 elements.
+* `C` is a 4×4 matrix containing signed 32-bit accumulated results.
+* Each output element is calculated as:
 
-The project includes RTL design, directed SystemVerilog verification, a Python golden model, deterministic test-vector generation, and end-to-end self-checking verification.
-
----
-
-## Architecture
-
-The top-level architecture is:
-
-```text
-                 +----------------------+
-                 |      Controller      |
-                 | CLEAR / FEED / DRAIN |
-                 +----------+-----------+
-                            |
-                            v
-A Matrix -----> +----------------------+
-B Matrix -----> |    Operand Buffer    |
-                +----------+-----------+
-                           |
-                    A[:,k], B[k,:]
-                           |
-                           v
-                +----------------------+
-                |      Input Skew      |
-                | delays: 0/1/2/3      |
-                +----------+-----------+
-                           |
-                           v
-                +----------------------+
-                |   4×4 Systolic Array |
-                |                      |
-                | PE  PE  PE  PE       |
-                | PE  PE  PE  PE       |
-                | PE  PE  PE  PE       |
-                | PE  PE  PE  PE       |
-                +----------+-----------+
-                           |
-                           v
-                      C[0:3][0:3]
-```
-
-The design contains **16 processing elements (PEs)**.
-
-Each PE performs a signed multiply-accumulate operation:
-
-```text
-acc = acc + a × b
-```
-
-while forwarding:
-
-- `A` horizontally
-- `B` vertically
-- corresponding valid signals with the data
-
----
-
-## Systolic Dataflow
-
-For matrix multiplication:
-
-\[
+$$
 C[i][j] = \sum_{k=0}^{3} A[i][k] \times B[k][j]
-\]
+$$
 
-During each FEED cycle, the operand buffer selects:
+The datapath uses a 4×4 systolic array with 16 processing elements (PEs). Each PE performs signed multiplication and accumulation while operands propagate through neighboring PEs.
 
-```text
-A[:, k]
-B[k, :]
-```
+## 2. Version History
 
-for:
+| Version | Description                                                                                                                                        |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.0    | Initial 4×4 INT8 matrix accelerator with a systolic datapath, input skew, controller, and directed verification.                                   |
+| v2.0    | Streaming matrix input with ready/valid handshaking, dual-bank ping-pong buffering, automatic computation scheduling, and end-to-end verification. |
 
-```text
-k = 0, 1, 2, 3
-```
+The v2.0 design retains the systolic computation architecture and adds a streaming input interface and matrix-level buffering.
 
-The input-skew network delays lanes by:
-
-| Lane | Delay |
-|---|---:|
-| 0 | 0 cycles |
-| 1 | 1 cycle |
-| 2 | 2 cycles |
-| 3 | 3 cycles |
-
-This creates the required wavefront so that the correct `A[i][k]` and `B[k][j]` values meet at each PE.
-
----
-
-## Controller
-
-The accelerator uses a Moore FSM:
+## 3. v2.0 Architecture
 
 ```text
-IDLE
-  |
- start
-  v
-CLEAR
-  |
-  v
-FEED
-  |
-  v
-DRAIN
-  |
-  v
-DONE
-  |
-  v
-IDLE
+                  Streaming Input Interface
+                in_valid / in_ready / A / B
+                              |
+                              v
+                 +-------------------------+
+                 | Matrix Input Ping-Pong  |
+                 | Buffer                  |
+                 | Bank 0 / Bank 1         |
+                 +-------------------------+
+                              |
+                              v
+                 +-------------------------+
+                 | Accelerator Controller  |
+                 | CLEAR / FEED / DRAIN /  |
+                 | DONE                    |
+                 +-------------------------+
+                              |
+                              v
+                 +-------------------------+
+                 | Input Skew              |
+                 +-------------------------+
+                              |
+                              v
+                 +-------------------------+
+                 | 4×4 Systolic Array      |
+                 | 16 Processing Elements  |
+                 +-------------------------+
+                              |
+                              v
+                     4×4 ACC32 Result
+                         busy / done
 ```
 
-Operation timing:
+The controller coordinates matrix execution and selects operands from the input buffer. Input skew aligns matrix operands before they enter the systolic array.
 
-| State | Cycles | Description |
-|---|---:|---|
-| CLEAR | 1 | Clear all PE accumulators |
-| FEED | 4 | Feed `k = 0,1,2,3` |
-| DRAIN | 6 | Allow the systolic wavefront to complete |
-| DONE | 1 | Signal completion |
+### Systolic Processing Element
 
-`busy` is asserted during:
+Each PE receives signed operands and valid signals, performs a multiply-accumulate operation when the required operands are valid, and forwards operands to adjacent PEs.
+
+The PE accumulator can be cleared before a new matrix computation.
+
+### Ping-Pong Input Buffer
+
+The v2.0 design uses two input banks. Each bank stores one paired set of 4×4 input matrices.
+
+A complete matrix pair requires 16 accepted input beats. The matrices are loaded in row-major order, with one element from `A` and one element from `B` accepted together on each successful ready/valid handshake.
+
+The dual-bank architecture allows a new matrix pair to be loaded while a previously completed pair is being computed, subject to bank availability.
+
+Completed matrix pairs are processed in order.
+
+## 4. v2.0 Top-Level Interface
+
+Top-level module: `accelerator_4x4_top_v2`
+
+| Signal            | Direction | Description                                             |
+| ----------------- | --------- | ------------------------------------------------------- |
+| `clk`             | Input     | System clock                                            |
+| `rst_n`           | Input     | Active-low reset                                        |
+| `in_valid`        | Input     | Indicates that input operand data is valid              |
+| `in_ready`        | Output    | Indicates that the accelerator can accept an input beat |
+| `a_data`          | Input     | Signed INT8 input element from matrix A                 |
+| `b_data`          | Input     | Signed INT8 input element from matrix B                 |
+| `busy`            | Output    | Indicates that a matrix computation is in progress      |
+| `done`            | Output    | Indicates completion of a matrix computation            |
+| `c_out[0:3][0:3]` | Output    | Signed ACC32 output matrix                              |
+
+An input beat is accepted when `in_valid && in_ready` is true at the active clock edge.
+
+The output matrix is checked during the `done` interval. `c_out` represents the live accumulator state and is not a separately retained result queue.
+
+## 5. RTL Module Hierarchy
 
 ```text
-CLEAR + FEED + DRAIN
-```
-
-for a total of **11 cycles after start is accepted**.
-
-`done` is asserted for one cycle after computation completes.
-
----
-
-## Top-Level Interface
-
-Main control signals:
-
-```systemverilog
-input  logic load;
-input  logic start;
-
-output logic busy;
-output logic done;
-```
-
-Matrix interfaces:
-
-```systemverilog
-input logic signed [7:0] a_matrix [0:3][0:3];
-input logic signed [7:0] b_matrix [0:3][0:3];
-
-output wire signed [31:0] c_out [0:3][0:3];
-```
-
-Typical operation:
-
-```text
-Load A/B
-   ↓
-load = 1 for one clock
-   ↓
-start = 1 for one clock
-   ↓
-busy = 1
-   ↓
-matrix computation
-   ↓
-busy = 0
-done = 1
-   ↓
-read C
-```
-
----
-
-## RTL Hierarchy
-
-```text
-accelerator_4x4_top
-│
+accelerator_4x4_top_v2
+├── matrix_input_pingpong_buffer
 ├── accelerator_4x4_controller
-│
-├── matrix_operand_buffer
-│
 └── accelerator_4x4_core
-    │
     ├── input_skew
-    │
-    └── accelerator_4x4
-        │
-        └── 16 × systolic_pe
+    └── systolic_array_4x4
+        └── systolic_pe
 ```
 
----
+### Main RTL Files
 
-## Verification Strategy
+| File                              | Purpose                                         |
+| --------------------------------- | ----------------------------------------------- |
+| `systolic_pe.sv`                  | Signed multiply-accumulate processing element   |
+| `systolic_array_4x4.sv`           | 4×4 systolic array and PE interconnections      |
+| `input_skew.sv`                   | Input timing alignment for systolic computation |
+| `accelerator_4x4_core.sv`         | Integration of input skew and systolic array    |
+| `accelerator_4x4_controller.sv`   | Matrix computation control                      |
+| `matrix_input_pingpong_buffer.sv` | Dual-bank matrix input storage and scheduling   |
+| `accelerator_4x4_top_v2.sv`       | Complete v2.0 accelerator integration           |
 
-The project uses an independent Python golden model.
+## 6. Verification
+
+The project includes standalone PE and systolic-array testbenches, as well as a self-checking v2.0 top-level testbench.
+
+### v2.0 End-to-End Verification
+
+**Status: PASS — confirmed by the user**
+
+The user confirmed that the v2.0 top-level simulation completed successfully on EDA Playground. Codex did not independently run that simulation; detailed runtime logs and the remote source snapshot have not been independently verified.
+
+**Simulation:** [EDA Playground — v2.0 End-to-End Verification](https://www.edaplayground.com/x/hPw2)
+
+**DUT:** `accelerator_4x4_top_v2`
+
+**Testbench:** `tb_accelerator_4x4_top_v2.sv`
+
+The end-to-end testbench exercises the integrated streaming input, matrix buffering, controller, and systolic computation path.
+
+Its verification environment includes a matrix multiplication reference model, transaction ordering checks, input handshake monitoring, and output comparisons.
+
+The PASS result indicates that the executed simulation checks completed successfully. It does not imply exhaustive verification of every possible input or backpressure condition.
+
+For the detailed verification methodology, test scenarios, results, and limitations, see:
+
+[`docs/accelerator_4x4_top_v2_verification.md`](docs/accelerator_4x4_top_v2_verification.md)
+
+### Additional Testbenches
+
+| Testbench                      | Verification Target           |
+| ------------------------------ | ----------------------------- |
+| `tb_systolic_pe.sv`            | Individual processing element |
+| `tb_systolic_array_4x4.sv`     | Systolic array                |
+| `tb_accelerator_4x4_top_v2.sv` | Complete v2.0 accelerator     |
+
+## 7. Running the Simulation
+
+The v2.0 end-to-end simulation is available at:
+
+https://www.edaplayground.com/x/hPw2
+
+For a separate simulation setup, include these RTL sources in the Design section:
 
 ```text
-Python Golden Model
-        |
-        v
-generate_vectors.py
-        |
-        +------> input_vectors.txt
-        |               |
-        |               v
-        |              DUT
-        |               |
-        |               v
-        |             c_out
-        |               |
-        +------> expected_vectors.txt
-                        |
-                        v
-                    Scoreboard
-                        |
-                   PASS / FAIL
+systolic_pe.sv
+systolic_array_4x4.sv
+input_skew.sv
+accelerator_4x4_core.sv
+accelerator_4x4_controller.sv
+matrix_input_pingpong_buffer.sv
+accelerator_4x4_top_v2.sv
 ```
 
-The SystemVerilog end-to-end testbench **does not calculate matrix multiplication itself**.
-
-Expected results are generated independently by Python and stored in:
+Use the following top-level testbench:
 
 ```text
-vectors/expected_vectors.txt
+tb_accelerator_4x4_top_v2.sv
 ```
 
-The scoreboard compares all 16 DUT outputs against the Python-generated results.
+Select the SystemVerilog language setting and a simulator compatible with the testbench.
 
----
+## 8. Design and Verification Documentation
 
-## Verification Coverage
+The project documentation includes design specifications and verification reports for the accelerator architecture and its major components.
 
-The following functionality has been tested:
+The v2.0 end-to-end verification report is located at:
 
-- PE signed multiply-accumulate
-- PE data and valid forwarding
-- accumulator clear
-- asynchronous reset
-- horizontal A propagation
-- vertical B propagation
-- 4×4 systolic interconnect
-- input skew of 0/1/2/3 cycles
-- signed matrix multiplication
-- INT8 boundary values
-- operand-buffer load and hold behavior
-- `k = 0,1,2,3` operand selection
-- controller state timing
-- `busy` / `done` protocol
-- multiple matrix operations without global reset
-- Python-generated vector testing
-- complete top-level end-to-end matrix multiplication
+`docs/accelerator_4x4_top_v2_verification.md`
 
-All implemented v1.0 directed and end-to-end tests pass.
+## 9. Engineering Topics Demonstrated
 
----
+This project covers:
 
-## Project Structure
+* Parameterized SystemVerilog RTL design.
+* Signed fixed-point multiply-accumulate datapaths.
+* Systolic array architecture and local operand propagation.
+* Input skew and cycle-level data alignment.
+* Finite-state-machine-based accelerator control.
+* Ready/valid streaming interfaces.
+* Ping-pong buffering and bank ownership.
+* Transaction ordering and resource reuse.
+* Self-checking testbenches and arithmetic reference models.
+* Integrated RTL verification and debugging.
 
-```text
-4x4_accelerator/
-│
-├── rtl/
-│   ├── systolic_pe.sv
-│   ├── accelerator_4x4.sv
-│   ├── input_skew.sv
-│   ├── accelerator_4x4_core.sv
-│   ├── accelerator_4x4_controller.sv
-│   ├── matrix_operand_buffer.sv
-│   └── accelerator_4x4_top.sv
-│
-├── tb/
-│   ├── unit/integration testbenches
-│   └── tb_accelerator_4x4_top.sv
-│
-├── python/
-│   ├── golden_model.py
-│   └── generate_vectors.py
-│
-├── vectors/
-│   ├── input_vectors.txt
-│   └── expected_vectors.txt
-│
-├── docs/
-│   └── 4x4_accelerator_v1.0_specification.pdf
-│
-└── README.md
-```
+## 10. Project Status
 
----
+**v2.0: End-to-end simulation PASS on EDA Playground, confirmed by the user.**
 
-## Generate Test Vectors
+The current project demonstrates an integrated 4×4 INT8 matrix accelerator with streaming input, ping-pong buffering, automatic computation control, and a systolic array datapath.
 
-From the project root:
+The simulation and verification documentation provide a reproducible starting point for further RTL development and verification.
 
-```bash
-python3 python/generate_vectors.py
-```
-
-The script generates:
-
-```text
-vectors/input_vectors.txt
-vectors/expected_vectors.txt
-```
-
-and checks the generated vectors against the Python golden model.
-
----
-
-## Design Parameters
-
-Default configuration:
-
-```text
-DATA_W = 8
-ACC_W  = 32
-Matrix = 4×4
-PEs    = 16
-```
-
-Arithmetic is signed.
-
-The v1.0 implementation does not perform saturation.
-
----
-
-## v1.0 Status
-
-**RTL implementation complete.**
-
-**Directed verification complete.**
-
-**Python golden-model verification complete.**
-
-**Top-level end-to-end verification complete.**
-
-The v1.0 RTL is frozen for release.
-
----
-
-## Future Work
-
-Possible future extensions include:
-
-- ready/valid command interface
-- ping-pong operand buffers
-- SRAM-based operand storage
-- configurable matrix dimensions
-- larger systolic arrays
-- matrix tiling
-- explicit overflow/saturation behavior
-- performance counters
-- UVM verification environment
+See the [v2.0 release notes](docs/release_notes_v2.0.md) and [implemented interface and timing specification](docs/accelerator_4x4_top_v2_integration.md). The v1.0 tag and historical specifications remain preserved.

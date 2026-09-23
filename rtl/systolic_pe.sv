@@ -1,4 +1,4 @@
-module accelerator_4x4_pe #(
+module systolic_pe #(
     parameter int DATA_W = 8,
     parameter int ACC_W  = 32
 ) (

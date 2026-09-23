@@ -32,7 +32,7 @@ module accelerator_4x4_core #(
         .b_valid_out(b_valid_skewed)
     );
 
-    accelerator_4x4 #(
+    systolic_array_4x4 #(
         .DATA_W(DATA_W),
         .ACC_W(ACC_W)
     ) u_accelerator_4x4 (

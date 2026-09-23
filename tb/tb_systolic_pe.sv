@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module tb_accelerator_4x4_pe;
+module tb_systolic_pe;
     localparam int DATA_W = 8;
     localparam int ACC_W = 32;
 
@@ -13,7 +13,7 @@ module tb_accelerator_4x4_pe;
     logic a_valid_out, b_valid_out;
     logic signed [ACC_W-1:0] acc;
 
-    accelerator_4x4_pe #(.DATA_W(DATA_W), .ACC_W(ACC_W)) dut (
+    systolic_pe #(.DATA_W(DATA_W), .ACC_W(ACC_W)) dut (
         .clk(clk), .rst_n(rst_n), .clear_acc(clear_acc),
         .a_in(a_in), .b_in(b_in),
         .a_valid_in(a_valid_in), .b_valid_in(b_valid_in),
@@ -100,7 +100,7 @@ module tb_accelerator_4x4_pe;
         #1;
         check_reset();
 
-        $display("PASS: all accelerator_4x4_pe directed tests completed");
+        $display("PASS: all systolic_pe directed tests completed");
         $finish;
     end
 
