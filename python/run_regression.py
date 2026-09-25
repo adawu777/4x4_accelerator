@@ -55,16 +55,18 @@ def main():
     benches = sorted((ROOT / "tb").glob("tb_*.sv"))
     for bench in benches:
         name = bench.stem
+        # The self-contained EDA variant preserves the original top module.
+        top = "tb_accelerator_4x4_top_v3" if name == "tb_accelerator_4x4_top_v3_eda" else name
         target = build / name
         target.mkdir(exist_ok=True)
         executable = target / "simulation"
         if simulator == "verilator":
             command = [simulator, "--binary", "--timing", "-Wno-fatal",
-                       "--top-module", name, "--Mdir", target, "-o", executable,
+                       "--top-module", top, "--Mdir", target, "-o", executable,
                        *sources, bench]
             simulation = [executable]
         else:
-            command = [simulator, "-g2012", "-s", name, "-o", executable, *sources, bench]
+            command = [simulator, "-g2012", "-s", top, "-o", executable, *sources, bench]
             simulation = ["vvp", executable]
         if not run(command, target / "compile.log"):
             print(f"FAIL compile {name}: {target / 'compile.log'}", flush=True)

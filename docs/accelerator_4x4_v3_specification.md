@@ -6,7 +6,7 @@
 
 **Version:** 3.0
 
-**Status:** RTL implemented; EDA Playground PASS author-reported; local compilation/simulation pending
+**Status:** v3.0 EDA Playground PASS confirmed by the project author with Icarus Verilog (`-g2012`); see the verification report for counters and scope. No local HDL simulation performed.
 
 **Design:** 4×4 INT8 Matrix Accelerator
 
@@ -610,7 +610,7 @@ A specification or completed RTL implementation alone does not establish verific
 This appendix records implementation mappings and compatibility differences
 before updating the earlier v3 draft to the full user-supplied specification.
 Sections 1–14 above are the supplied requirements; the status line has been
-updated to reflect implementation work, not verification completion.
+updated to reflect the author-confirmed EDA Playground verification result.
 
 ### Actual v2.0 inspection
 
@@ -729,9 +729,10 @@ Mandatory coverage includes three-way load/compute/output-transfer overlap,
 compute under output stall, both banks occupied, simultaneous queue push/pop,
 same-edge output consume/replace, once-per-computation done, and reset recovery.
 See `accelerator_4x4_v3_verification.md` for implementation coverage and actual
-execution results. No local simulator was found. EDA Playground PASS is now
-author-reported; the run's source snapshot, configuration, and logs have not
-been independently verified. No
-unresolved interface decision remains against the supplied text; the explicit
+execution results. The author confirmed v3 PASS with Icarus Verilog and
+SystemVerilog `-g2012` at https://www.edaplayground.com/x/D8a8; the report
+records the supplied counters. No local HDL simulation or fresh legacy
+regression is claimed. No unresolved interface decision remains against the
+supplied text; the explicit
 streaming/automatic-start mapping above is the compatibility adaptation.
 No synthesis, timing closure, formal proof, commit, tag, or release is implied.

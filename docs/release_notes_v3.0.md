@@ -1,49 +1,46 @@
-# v3.0 change notes
+# 4×4 INT8 Matrix Accelerator v3.0
 
-**Status: RTL implemented; EDA Playground PASS reported by the project author,
-not independently verified. No local RTL compilation/simulation performed.
-Publication and tagged source snapshots are recorded on the repository’s
-[GitHub Releases page](https://github.com/adawu777/4x4_accelerator/releases).**
+Version 3.0 supports overlapping input loading, computation, and output
+transfer while preserving ordered signed INT8 matrix multiplication with
+INT32 results.
 
-The new `accelerator_4x4_top_v3` adds one registered 4×4 output matrix and
-ready/valid backpressure while preserving all released v2 sources. It reuses
-the existing two-bank input buffer, bank-ID ordering queue, and systolic core.
-No DMA, second output buffer, or result FIFO is added.
+- Two ping-pong input banks accept paired A/B streaming elements and protect
+  occupied banks from overwrite.
+- Input loading, computation, and output transfer can overlap, including
+  same-cycle three-way overlap.
+- One registered 4×4 output buffer provides a whole-matrix ready/valid
+  handshake and stable payload under downstream backpressure.
+- RESULT_PENDING retains a completed result in the accumulators until the
+  output slot can accept it, preventing premature clear or overwrite.
+- Simultaneous output consumption and replacement retains valid without a
+  bubble, while transaction ordering and buffer ownership are preserved.
+- `done` pulses at computation completion independently of output readiness;
+  `busy` includes RESULT_PENDING. The legacy `c_out` remains live accumulator
+  data; downstream transfers use `out_matrix`.
+- Reset cancels partial, queued, active, pending, and unread transactions.
+- A compact self-contained EDA testbench uses nine directed and 64 fixed-seed
+  random matrix pairs with an independent reference multiplication. The
+  file-based repository testbench remains available with Icarus-safe reads.
 
-## Interface and timing
+## Verification
 
-* Preserve `clk`, `rst_n`, `in_valid`, `in_ready`, `a_data`, `b_data`, `busy`,
-  `done`, and signed `c_out[0:3][0:3]`, with DATA_W=8 and ACC_W=32 defaults.
-* Preserve paired 16-beat row-major input loading and automatic scheduling of
-  the oldest complete pair. No external load/start ports are introduced.
-* Add signed `out_matrix[0:3][0:3]`, `out_valid`, and `out_ready`. The whole
-  registered matrix transfers at a rising edge with valid and ready high.
-* Preserve live-accumulator `c_out` and the E11 completion pulse on `done`.
-  Done remains independent of downstream readiness and occurs once per
-  completed computation, even when its result cannot yet enter the output slot.
-* Extend `busy` through RESULT_PENDING. Consequently busy and done can both
-  be high, and busy low does not imply the output slot is empty.
-* Release the active input bank at E11, one edge earlier than v2, allowing
-  future inputs to occupy both banks while an accumulator result is pending.
-* Capture completed accumulators into the output register no earlier than
-  E12. An unread output does not block the next computation; if that computation
-  completes first, its result waits in the accumulators without being cleared.
-* Consume an old output and replace it with a pending result on the same edge
-  without deasserting valid. Reset cancels all partial/queued/active/pending/output
-  transactions and clears both output interfaces.
+**EDA Playground PASS**, confirmed by the project author using **Icarus
+Verilog with SystemVerilog `-g2012`** at
+https://www.edaplayground.com/x/D8a8.
 
-## Verification and limitations
+```text
+PASS v3: results=158 copies=161 completions=164 cycles=3765 golden_vectors=73
+```
 
-Python golden-model sanity checks and 73-case vector generation/readback pass.
-No compatible local simulator is available; all eleven legacy benches and
-the v3 bench are NOT RUN locally. The v3 bench includes arithmetic/order checks,
-backpressure, simultaneous transfers, three-way overlap, completion pulses,
-and reset recovery. Its coverage is implemented, not demonstrated locally.
-The author reports a successful v3 EDA Playground run, but its URL, simulator,
-source snapshot, executed cases, and log have not been provided. The remote
-report does not establish that every current repository bench passed.
+Reported coverage includes 1417 load/compute overlaps, 80 output/compute
+overlaps, 4 triple overlaps, 53 input stalls, 112 pending stalls, 3 output
+replacements, 1 simultaneous queue push/pop, 37 captures while not ready,
+155 consume-only events, 5 completions while output was blocked, and 4290
+ownership checks.
 
-Run `python3 python/run_regression.py` with a compatible simulator, review
-all compile warnings and runtime logs, and resolve any failures.
-See the [specification](accelerator_4x4_v3_specification.md) and
-[verification report](accelerator_4x4_v3_verification.md) for details.
+See [the verification report](accelerator_4x4_v3_verification.md) for the
+supplied counters and verified scenarios, and
+[the specification](accelerator_4x4_v3_specification.md) for the architecture
+and exact interface/timing contract. No local HDL simulation is claimed;
+this result does not imply a fresh run of the legacy regression suite.
+Existing v1.0 and v2.0 releases are preserved.

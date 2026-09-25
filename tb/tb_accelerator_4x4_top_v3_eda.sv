@@ -1,7 +1,4 @@
 `timescale 1ns/1ps
-`ifndef V3_VECTOR_FILE
-`define V3_VECTOR_FILE "vectors/v3_vectors.txt"
-`endif
 
 module tb_accelerator_4x4_top_v3;
     logic clk = 0, rst_n = 1, in_valid = 0, out_ready = 0;
@@ -17,8 +14,7 @@ module tb_accelerator_4x4_top_v3;
     // reads below check protection/control; they never drive the model.
     localparam int EMPTY=0, LOADING=1, FULL=2, COMPUTING=3;
     integer va[0:127][0:15], vb[0:127][0:15], vc[0:127][0:15];
-    integer vectors, fd, rc, junk;
-    integer scan_value;
+    integer vectors;
     integer bank[0:1], bank_id[0:1], pref=0, partial=0, partial_id=-1;
     integer queue_bank[0:4095], qhead=0, qtail=0;
     integer expected_ids[0:4095], sent=0, received=0;
@@ -259,34 +255,95 @@ module tb_accelerator_4x4_top_v3;
         if (age != 11 || !full) $fatal(1, "blocked setup not reached");
     endtask
 
+    // Fixed input seed, separate from the ready/valid stimulus PRNG.
+    function automatic [31:0] vector_next(input [31:0] state);
+        reg [31:0] x;
+        begin
+            x = state ^ (state << 13);
+            x = x ^ (x >> 17);
+            vector_next = x ^ (x << 5);
+        end
+    endfunction
+
+    task automatic init_vectors;
+        integer id, n, r, col, k;
+        integer lhs, rhs, total;
+        reg [31:0] vector_state;
+        begin
+            // Nine original directed cases plus 64 reproducible random pairs.
+            vectors = 73;
+            vector_state = 32'h00004a43;
+            for (n=0; n<16; n=n+1) begin
+                // Sequential x identity, zero x zero, identity x signed.
+                va[0][n] = n+1;
+                vb[0][n] = (n/4 == n%4) ? 1 : 0;
+                va[2][n] = 0;
+                vb[2][n] = 0;
+                va[3][n] = vb[0][n];
+                // Original mixed-sign and boundary fixtures, in row-major order.
+                case (n)
+                    0: begin va[1][n]=-3; vb[1][n]=4; va[4][n]=-128; vb[4][n]=-128; end
+                    1: begin va[1][n]=0; vb[1][n]=-2; va[4][n]=-128; vb[4][n]=127; end
+                    2: begin va[1][n]=5; vb[1][n]=0; va[4][n]=-128; vb[4][n]=-128; end
+                    3: begin va[1][n]=-2; vb[1][n]=7; va[4][n]=-128; vb[4][n]=0; end
+                    4: begin va[1][n]=7; vb[1][n]=-5; va[4][n]=127; vb[4][n]=-128; end
+                    5: begin va[1][n]=-4; vb[1][n]=3; va[4][n]=127; vb[4][n]=127; end
+                    6: begin va[1][n]=1; vb[1][n]=6; va[4][n]=127; vb[4][n]=127; end
+                    7: begin va[1][n]=0; vb[1][n]=0; va[4][n]=127; vb[4][n]=-1; end
+                    8: begin va[1][n]=-128; vb[1][n]=1; va[4][n]=-128; vb[4][n]=-128; end
+                    9: begin va[1][n]=6; vb[1][n]=0; va[4][n]=127; vb[4][n]=127; end
+                    10: begin va[1][n]=-7; vb[1][n]=-4; va[4][n]=-128; vb[4][n]=-128; end
+                    11: begin va[1][n]=3; vb[1][n]=2; va[4][n]=127; vb[4][n]=1; end
+                    12: begin va[1][n]=2; vb[1][n]=0; va[4][n]=0; vb[4][n]=-128; end
+                    13: begin va[1][n]=-1; vb[1][n]=8; va[4][n]=-1; vb[4][n]=127; end
+                    14: begin va[1][n]=0; vb[1][n]=-3; va[4][n]=1; vb[4][n]=127; end
+                    15: begin va[1][n]=127; vb[1][n]=-6; va[4][n]=127; vb[4][n]=127; end
+                endcase
+                vb[3][n] = vb[1][n];
+                // All four signed INT8 extreme combinations.
+                va[5][n] = -128; vb[5][n] = -128;
+                va[6][n] = -128; vb[6][n] = 127;
+                va[7][n] = 127;  vb[7][n] = 127;
+                va[8][n] = 127;  vb[8][n] = -128;
+            end
+            for (id=9; id<vectors; id=id+1) begin
+                for (n=0; n<16; n=n+1) begin
+                    vector_state = vector_next(vector_state);
+                    va[id][n] = int'(vector_state[7:0]) - 128;
+                    vector_state = vector_next(vector_state);
+                    vb[id][n] = int'(vector_state[7:0]) - 128;
+                end
+            end
+
+            if (vectors < 73 || vectors > 128) $fatal(1, "bad vector count");
+            for (id=0; id<vectors; id=id+1) begin
+                for (n=0; n<16; n=n+1) begin
+                    if (va[id][n] < -128 || va[id][n] > 127) $fatal(1, "bad A vector");
+                    if (vb[id][n] < -128 || vb[id][n] > 127) $fatal(1, "bad B vector");
+                end
+                // Independent mathematical oracle; no DUT signals or timing.
+                // Signed 32-bit integer operands and accumulation are sufficient:
+                // four INT8 products have a sum in [-65024, 65536].
+                for (r=0; r<4; r=r+1) begin
+                    for (col=0; col<4; col=col+1) begin
+                        total = 0;
+                        for (k=0; k<4; k=k+1) begin
+                            lhs = va[id][r*4+k];
+                            rhs = vb[id][k*4+col];
+                            total = total + lhs * rhs;
+                        end
+                        vc[id][r*4+col] = total;
+                    end
+                end
+            end
+        end
+    endtask
+
     initial begin : tests
         bit accepted;
         integer waited;
         for (integer n=0; n<5; n++) state_resets[n]=0;
-        fd=$fopen(`V3_VECTOR_FILE, "r");
-        if (!fd) $fatal(1, "run python/generate_vectors_v3.py first");
-        rc=$fscanf(fd, "%d", vectors);
-        if (rc != 1 || vectors < 73 || vectors > 128) $fatal(1, "bad vector count");
-        for (integer id=0; id<vectors; id++) begin
-            for (integer n=0; n<16; n++) begin
-                rc=$fscanf(fd, "%d", scan_value);
-                if (rc != 1 || scan_value < -128 || scan_value > 127) $fatal(1, "bad A vector");
-                va[id][n]=scan_value;
-            end
-            for (integer n=0; n<16; n++) begin
-                rc=$fscanf(fd, "%d", scan_value);
-                if (rc != 1 || scan_value < -128 || scan_value > 127) $fatal(1, "bad B vector");
-                vb[id][n]=scan_value;
-            end
-            for (integer n=0; n<16; n++) begin
-                rc=$fscanf(fd, "%d", scan_value);
-                if (rc != 1) $fatal(1, "bad C vector");
-                vc[id][n]=scan_value;
-            end
-        end
-        rc=$fscanf(fd, "%d", junk);
-        if (rc == 1) $fatal(1, "extra vector data");
-        $fclose(fd);
+        init_vectors();
         reset_dut();
 
         // Always-ready, all arithmetic vectors, continuous matrix boundaries.

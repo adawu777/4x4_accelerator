@@ -153,27 +153,41 @@ RESULT_PENDING and can be LOW while an unread output remains valid. Use
 
 ## 8. Verification
 
-**Reported result:** EDA Playground simulation passed, as reported by the
-project author in the supplied README text. Codex has not independently
-verified that run. The simulation URL, simulator/version, configuration,
-executed test cases, source snapshot, and runtime log have not been provided.
+**v3.0 PASS on EDA Playground**, confirmed by the project author using
+**Icarus Verilog with SystemVerilog `-g2012`**:
+[run the project](https://www.edaplayground.com/x/D8a8).
 
-The repository testbench covers matrix computation, input ownership,
-ready/valid flow control, overlap, transaction ordering, and reset. This is
-its intended coverage; the executed remote coverage cannot yet be confirmed.
-
-**Local result:** Python golden-model checks and generation/readback of 73 v3
-vectors passed. No compatible local RTL simulator was found; all eleven
-legacy testbenches and the v3 testbench remain unrun locally.
-
-With Verilator or Icarus available, run from the repository root:
-
-```sh
-python3 python/run_regression.py
+```text
+PASS v3: results=158 copies=161 completions=164 cycles=3765 golden_vectors=73
 ```
 
-See the [verification report](docs/accelerator_4x4_v3_verification.md) for
-local execution evidence and the outstanding remote-run details.
+The run covers signed arithmetic, ping-pong ownership, ready/valid handshakes,
+output backpressure and stability, load/compute/output overlap (including
+triple overlap), RESULT_PENDING protection, simultaneous consume/replacement,
+transaction ordering, completion timing, and reset recovery.
+
+Copy `tb/tb_accelerator_4x4_top_v3_eda.sv` into the Playground Testbench pane.
+It is self-contained (about 21 KB), with nine directed matrix pairs and 64
+fixed-seed pseudo-random pairs. An independent signed-integer reference
+multiplication calculates expected results. No vector-file upload is needed.
+Use only one v3 testbench at a time: both declare `tb_accelerator_4x4_top_v3`.
+
+The file-based `tb/tb_accelerator_4x4_top_v3.sv` remains available for repository
+regression, with scalar file reads compatible with Icarus and a configurable
+`V3_VECTOR_FILE` defaulting to `"vectors/v3_vectors.txt"`. Its Python-generated
+random inputs differ from the EDA bench's PRNG; both retain the same protocol
+scenarios and checks.
+
+No local HDL simulator is installed; no local HDL simulation is claimed.
+The remote PASS does not imply a fresh run of the legacy benches. With an
+existing compatible simulator, the repository regression can be run using:
+
+```sh
+python3 python/run_regression.py --simulator iverilog
+```
+
+See the [verification report](docs/accelerator_4x4_v3_verification.md) for the
+reported counters, scenarios, and verification scope.
 
 ## 9. Documentation
 
@@ -209,7 +223,8 @@ v2.0 streaming RTL.
 
 Version 3.0 is the current implementation.
 
-The design has been reported as passing web-based EDA simulation.
+The project author confirmed v3.0 PASS on EDA Playground with Icarus Verilog
+and SystemVerilog `-g2012`; the verification report records the supplied results.
 
 See the [GitHub Releases page](https://github.com/adawu777/4x4_accelerator/releases)
 for published releases and their tagged source snapshots.
